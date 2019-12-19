@@ -16,13 +16,18 @@
 
 package lk.ac.mrt.cse.dbs.simpleexpensemanager.data.impl;
 
-import android.content.Context;
+import android.content.ContentValues;
+import android.database.Cursor;
+import android.database.sqlite.SQLiteDatabase;
 
+import java.text.ParseException;
+import java.text.SimpleDateFormat;
+import java.util.ArrayList;
 import java.util.Date;
-import java.util.LinkedList;
 import java.util.List;
 
 import lk.ac.mrt.cse.dbs.simpleexpensemanager.data.TransactionDAO;
+import lk.ac.mrt.cse.dbs.simpleexpensemanager.data.database.DatabaseHelper;
 import lk.ac.mrt.cse.dbs.simpleexpensemanager.data.model.ExpenseType;
 import lk.ac.mrt.cse.dbs.simpleexpensemanager.data.model.Transaction;
 
@@ -31,31 +36,132 @@ import lk.ac.mrt.cse.dbs.simpleexpensemanager.data.model.Transaction;
  * transaction logs are stored in a LinkedList in memory.
  */
 public class PersistentTransactionDAO implements TransactionDAO {
-    private final List<Transaction> transactions;
+    DatabaseHelper dbHelper;
 
-    public PersistentTransactionDAO(Context context) {
-        transactions = new LinkedList<>();
+    public PersistentTransactionDAO(DatabaseHelper dbHelper) {
+        this.dbHelper = dbHelper;
     }
 
     @Override
     public void logTransaction(Date date, String accountNo, ExpenseType expenseType, double amount) {
-        Transaction transaction = new Transaction(date, accountNo, expenseType, amount);
-        transactions.add(transaction);
+        SQLiteDatabase db = dbHelper.getWritableDatabase();
+
+        ContentValues values = new ContentValues();
+        values.put(DatabaseHelper.Transaction.COLUMN_NAME_DATE, (new SimpleDateFormat("yyyy-MM-dd")).format(date));
+        values.put(DatabaseHelper.Transaction.COLUMN_NAME_ACOOUNT_NO, accountNo);
+        values.put(DatabaseHelper.Transaction.COLUMN_NAME_EXPENSE_TYPE, expenseType.toString());
+        values.put(DatabaseHelper.Transaction.COLUMN_NAME_AMOUNT, amount);
+
+        db.insert(DatabaseHelper.Transaction.TABLE_NAME, null, values);
     }
 
     @Override
     public List<Transaction> getAllTransactionLogs() {
+        SQLiteDatabase db = dbHelper.getReadableDatabase();
+
+        String table = DatabaseHelper.Transaction.TABLE_NAME;
+
+        String[] columns = {
+                DatabaseHelper.Transaction.COLUMN_NAME_DATE,
+                DatabaseHelper.Transaction.COLUMN_NAME_ACOOUNT_NO,
+                DatabaseHelper.Transaction.COLUMN_NAME_EXPENSE_TYPE,
+                DatabaseHelper.Transaction.COLUMN_NAME_AMOUNT
+        };
+
+        Cursor cursor = db.query(
+                table,  // The table to query
+                columns,             // The array of columns to return (pass null to get all)
+                null,              // The columns for the WHERE clause
+                null,          // The values for the WHERE clause
+                null,                   // don't group the rows
+                null,                   // don't filter by row groups
+                null             // The sort order
+        );
+
+        List transactions = new ArrayList<Transaction>();
+        while(cursor.moveToNext()) {
+
+            String dateString = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.Transaction.COLUMN_NAME_DATE));
+            Date date = null;
+            try {
+                date = (new SimpleDateFormat("yyyy-MM-dd")).parse(dateString);
+            } catch (ParseException e) {
+                date = new Date();
+            }
+
+            String expenseTypeString = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.Transaction.COLUMN_NAME_EXPENSE_TYPE));
+            ExpenseType expenseType = (expenseTypeString == ExpenseType.INCOME.toString()) ?
+                    ExpenseType.INCOME:
+                    ExpenseType.EXPENSE;
+
+            Transaction transaction = new Transaction(
+                    date,
+                    cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.Transaction.COLUMN_NAME_ACOOUNT_NO)),
+                    expenseType,
+                    cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.Transaction.COLUMN_NAME_AMOUNT))
+            );
+
+            transactions.add(transaction);
+        }
+        cursor.close();
+
         return transactions;
     }
 
     @Override
     public List<Transaction> getPaginatedTransactionLogs(int limit) {
-        int size = transactions.size();
-        if (size <= limit) {
-            return transactions;
+        SQLiteDatabase db = dbHelper.getReadableDatabase();
+
+        String table = DatabaseHelper.Transaction.TABLE_NAME;
+
+        String[] columns = {
+                DatabaseHelper.Transaction.COLUMN_NAME_DATE,
+                DatabaseHelper.Transaction.COLUMN_NAME_ACOOUNT_NO,
+                DatabaseHelper.Transaction.COLUMN_NAME_EXPENSE_TYPE,
+                DatabaseHelper.Transaction.COLUMN_NAME_AMOUNT
+        };
+
+        String limitString = Integer.toString(limit);
+
+        Cursor cursor = db.query(
+                table,  // The table to query
+                columns,             // The array of columns to return (pass null to get all)
+                null,              // The columns for the WHERE clause
+                null,          // The values for the WHERE clause
+                null,                   // don't group the rows
+                null,                   // don't filter by row groups
+                null,             // The sort order
+                limitString
+        );
+
+        List transactions = new ArrayList<Transaction>();
+        while (cursor.moveToNext()) {
+
+            String dateString = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.Transaction.COLUMN_NAME_DATE));
+            Date date = null;
+            try {
+                date = (new SimpleDateFormat("yyyy-MM-dd")).parse(dateString);
+            } catch (ParseException e) {
+                date = new Date();
+            }
+
+            String expenseTypeString = cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.Transaction.COLUMN_NAME_EXPENSE_TYPE));
+            ExpenseType expenseType = (expenseTypeString.equals(ExpenseType.INCOME.toString())) ?
+                    ExpenseType.INCOME:
+                    ExpenseType.EXPENSE;
+
+            Transaction transaction = new Transaction(
+                    date,
+                    cursor.getString(cursor.getColumnIndexOrThrow(DatabaseHelper.Transaction.COLUMN_NAME_ACOOUNT_NO)),
+                    expenseType,
+                    cursor.getDouble(cursor.getColumnIndexOrThrow(DatabaseHelper.Transaction.COLUMN_NAME_AMOUNT))
+            );
+
+            transactions.add(transaction);
         }
-        // return the last <code>limit</code> number of transaction logs
-        return transactions.subList(size - limit, size);
+        cursor.close();
+
+        return transactions;
     }
 
 }
